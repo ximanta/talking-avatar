@@ -1,0 +1,28 @@
+{
+  "name": "speaking-avatar-app",
+  "version": "1.0.0",
+  "description": "A web-based speaking avatar with lip-sync animation",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "start": "vite"
+  },
+  "keywords": [
+    "three.js",
+    "avatar",
+    "text-to-speech",
+    "lip-sync",
+    "3d",
+    "animation"
+  ],
+  "author": "[Your Name]",
+  "license": "MIT",
+  "dependencies": {
+    "three": "^0.152.2"
+  },
+  "devDependencies": {
+    "vite": "^4.3.8"
+  }
+}
