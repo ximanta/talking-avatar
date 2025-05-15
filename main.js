@@ -12,14 +12,25 @@ document.body.appendChild(renderer.domElement);
 const light = new THREE.AmbientLight(0xffffff); // soft white light
 scene.add(light);
 
+// Global state
+let isSpeaking = false;
+
 // Load and create avatar from images
 const textureLoader = new THREE.TextureLoader();
 const mouthTextures = {
+  // Base positions
   closed: textureLoader.load('image/closed.png'),
   small: textureLoader.load('image/small.png'),
   medium: textureLoader.load('image/medium.png'),
   round: textureLoader.load('image/round.png'),
-  smile: textureLoader.load('image/smile.png')
+  wide: textureLoader.load('image/wide.png'),
+
+  // Expressions
+  smile: textureLoader.load('image/smile.png'),
+  smile_open: textureLoader.load('image/smile_open.png'),
+  pressed: textureLoader.load('image/pressed.png'),
+  teeth: textureLoader.load('image/teeth.png'),
+  tongue: textureLoader.load('image/tongue.png')
 };
 
 const avatarGeometry = new THREE.PlaneGeometry(2, 2); // Adjust size as needed
@@ -52,22 +63,48 @@ async function speak(text) {
   utterance.pitch = 1.0;
   utterance.volume = 1.0;
 
-  // Map phonemes to mouth positions
-  const getPhonemeTexture = (text) => {
-    // Simple phoneme detection based on characters
+  // Enhanced phoneme detection and mapping
+  const getPhonemeTexture = (text, prevChar = '', nextChar = '') => {
     const char = text.toLowerCase();
+    const combo = (prevChar + char + nextChar).toLowerCase();
+    const isEndOfWord = nextChar === ' ' || nextChar === '' || '.!?,;'.includes(nextChar);
+    
+    // Common phoneme combinations with context
+    if (combo.includes('th')) return mouthTextures.tongue;
+    if (combo.includes('ch') || combo.includes('sh')) return mouthTextures.small;
+    if (combo.includes('ee') || combo.includes('ea')) return mouthTextures.teeth;
+    if (combo.includes('oo')) return mouthTextures.round;
+    if (combo.includes('oh')) return mouthTextures.round;
+    if (combo.includes('ah')) return mouthTextures.wide;
+    if (combo.includes('ay')) return mouthTextures.medium;
+    
+    // Emotion-aware phonemes
+    const isHappyWord = /\b(happy|love|nice|good)\b/i.test(combo);
+    
+    // Single phonemes with context
     if ('aeiou'.includes(char)) {
-      if ('ao'.includes(char)) return mouthTextures.round;  // Round mouth for O and A sounds
-      if ('i'.includes(char)) return mouthTextures.small;   // Small mouth for I sounds
-      if ('eu'.includes(char)) return mouthTextures.medium; // Medium mouth for E and U sounds
+      if (isHappyWord) return mouthTextures.smile_open;
+      if ('a'.includes(char)) return mouthTextures.wide;
+      if ('o'.includes(char)) return mouthTextures.round;
+      if ('i'.includes(char)) return mouthTextures.teeth;
+      if ('e'.includes(char)) return mouthTextures.small;
+      if ('u'.includes(char)) return mouthTextures.round;
     }
-    return mouthTextures.closed;  // Default to closed mouth for consonants
+    
+    // Consonant groups with natural movement
+    if ('pbm'.includes(char)) return mouthTextures.pressed;
+    if ('fv'.includes(char)) return mouthTextures.teeth;
+    if ('tdnl'.includes(char)) return mouthTextures.tongue;
+    if ('ws'.includes(char)) return mouthTextures.round;
+    if ('r'.includes(char)) return mouthTextures.medium;
+    
+    return mouthTextures.closed;
   };
 
   let animationTimer = null;
-  let isSpeaking = false;
+  let lastTexture = mouthTextures.closed;
 
-  // Track current character for lip sync
+  // Track current character for lip sync with natural timing
   let currentCharIndex = 0;
   const updateMouth = () => {
     if (!isSpeaking) {
@@ -76,10 +113,29 @@ async function speak(text) {
     }
 
     if (currentCharIndex < text.length) {
-      const texture = getPhonemeTexture(text[currentCharIndex]);
-      avatarMaterial.map = texture;
+      const prevChar = currentCharIndex > 0 ? text[currentCharIndex - 1] : '';
+      const nextChar = currentCharIndex < text.length - 1 ? text[currentCharIndex + 1] : '';
+      const texture = getPhonemeTexture(text[currentCharIndex], prevChar, nextChar);
+      
+      // Natural pauses for punctuation
+      const char = text[currentCharIndex];
+      let delay = 100; // Base timing
+      
+      if (',.:;!?'.includes(char)) {
+        avatarMaterial.map = mouthTextures.closed;
+        delay = char === '.' || char === '!' || char === '?' ? 300 : 200;
+      } else {
+        // Smooth transition between mouth positions
+        if (texture !== lastTexture) {
+          avatarMaterial.map = texture;
+          lastTexture = texture;
+        }
+      }
+
       currentCharIndex++;
-      animationTimer = setTimeout(updateMouth, 100); // Update every 100ms
+      // Vary the timing based on character type
+      const speedVariation = Math.random() * 50 - 25; // ±25ms variation for natural effect
+      animationTimer = setTimeout(updateMouth, delay + speedVariation);
     } else {
       avatarMaterial.map = mouthTextures.closed;
     }
@@ -89,6 +145,7 @@ async function speak(text) {
     console.log('Speech started');
     isSpeaking = true;
     currentCharIndex = 0;
+    lastTexture = mouthTextures.closed;
     updateMouth();
   };
 
@@ -99,18 +156,32 @@ async function speak(text) {
       clearTimeout(animationTimer);
       animationTimer = null;
     }
-    avatarMaterial.map = mouthTextures.closed;
+    // Gradual close
+    avatarMaterial.map = mouthTextures.small;
+    setTimeout(() => {
+      avatarMaterial.map = mouthTextures.closed;
+    }, 100);
   };
 
   utterance.onboundary = (event) => {
     console.log('Speech boundary:', event.name, event);
     if (event.name === 'word') {
-      // Smile occasionally at the end of words
-      if (Math.random() < 0.2) { // 20% chance to smile
+      // Natural expressions at word boundaries
+      const wordEnd = text.substr(event.charIndex, event.charLength);
+      
+      // Smile more often at the end of sentences or happy words
+      const isEndOfSentence = '.!?'.includes(wordEnd[wordEnd.length - 1]);
+      const isHappyWord = /\b(happy|great|good|nice|love|wonderful)\b/i.test(wordEnd);
+      
+      if (isEndOfSentence || isHappyWord || Math.random() < 0.1) { // 10% random chance
         avatarMaterial.map = mouthTextures.smile;
         setTimeout(() => {
-          avatarMaterial.map = mouthTextures.closed;
-        }, 200);
+          if (isSpeaking) {
+            avatarMaterial.map = lastTexture;
+          } else {
+            avatarMaterial.map = mouthTextures.closed;
+          }
+        }, isEndOfSentence ? 400 : 200);
       }
     }
   };
@@ -122,6 +193,50 @@ async function speak(text) {
   speechSynthesis.cancel(); // Cancel any ongoing speech
   speechSynthesis.speak(utterance);
 }
+
+// Add subtle head movement
+function addNaturalMovement() {
+  const baseRotation = avatar.rotation.z;
+  const basePosition = avatar.position.y;
+  
+  // Subtle random movement
+  setInterval(() => {
+    if (!isSpeaking) return;
+    
+    const rotationVariation = (Math.random() - 0.5) * 0.05;
+    const positionVariation = (Math.random() - 0.5) * 0.02;
+    
+    gsap.to(avatar.rotation, {
+      z: baseRotation + rotationVariation,
+      duration: 2,
+      ease: "power1.inOut"
+    });
+    
+    gsap.to(avatar.position, {
+      y: basePosition + positionVariation,
+      duration: 2,
+      ease: "power1.inOut"
+    });
+  }, 2000);
+
+  // Random blinking
+  const blink = () => {
+    if (Math.random() < 0.1) { // 10% chance to blink when checked
+      const currentTexture = avatarMaterial.map;
+      avatarMaterial.map = mouthTextures.closed;
+      setTimeout(() => {
+        if (isSpeaking) {
+          avatarMaterial.map = currentTexture;
+        }
+      }, 150);
+    }
+  };
+
+  setInterval(blink, 1000); // Check for blink every second
+}
+
+// Start natural movements
+addNaturalMovement();
 
 // Example: get LLM response and speak
 async function startConversation() {
